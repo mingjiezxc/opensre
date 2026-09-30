@@ -1,0 +1,33 @@
+# Build-context ignore rules for feishu-bot/Dockerfile.
+#
+# Docker resolves this file (named after the Dockerfile, sitting next to it) in
+# preference to the context-root .dockerignore. It matters here because the
+# build context is the REPOSITORY ROOT (the service depends on the sibling
+# package im-core/, which a per-service context cannot see), so without these
+# rules `docker build -f feishu-bot/Dockerfile .` would upload every dev
+# virtualenv, node_modules, and the repo's .git into the context.
+#
+# Do NOT ignore whole service directories: the Dockerfile COPYs both
+# `im-core/` and `feishu-bot/`.
+
+# Python dev artifacts
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+
+# Review/inspection scratch space — never ship vendored SDK copies
+.sdk-inspect/
+
+# Local env & secrets
+.env
+.env.*
+!.env.example
+
+# Repo noise that must not enter the image
+/tests
+*.md
+!README.md

@@ -1,0 +1,17 @@
+# feishu-bot/.dockerignore
+#
+# NOTE: with `context: .` + `dockerfile: feishu-bot/Dockerfile`, Docker reads the
+# .dockerignore at the *context root*, so this file documents intent and applies
+# to `docker build -f feishu-bot/Dockerfile feishu-bot` style contexts. The
+# Dockerfile additionally removes stray caches after COPY so the image stays
+# clean either way.
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.sdk-inspect/
+tests
+*.md
+.env
+.env.*

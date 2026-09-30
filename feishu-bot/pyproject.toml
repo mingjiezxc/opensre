@@ -1,0 +1,29 @@
+[project]
+name = "opensre-feishu-bot"
+version = "0.1.0"
+description = "Feishu / Lark bot for OpenSRE incident investigations (opensre-im-core adapter)"
+requires-python = ">=3.11"
+dependencies = [
+  "lark-oapi>=1.7.0",
+  "aiohttp>=3.9.0",
+  "mistune>=3.0.0",
+  "python-dotenv>=1.0.0",
+  "opensre-im-core",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.0.0",
+  "pytest-asyncio>=0.23.0",
+]
+
+# The shared, platform-agnostic IM core lives next to this package in the repo
+# (im-core/), so it is consumed as an editable local path dependency rather than
+# published. Docker builds copy both trees side by side under /app (see
+# Dockerfile), which keeps the same relative layout.
+[tool.uv.sources]
+opensre-im-core = { path = "../im-core", editable = true }
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["."]
