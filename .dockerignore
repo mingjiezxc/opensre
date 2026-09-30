@@ -1,0 +1,44 @@
+# Docker build context ignore rules.
+#
+# NOTE ON SCOPE: the bot services (teams-bot, feishu-bot) are built with the
+# REPOSITORY ROOT as their context, because they depend on the sibling package
+# im-core/ and a per-service context cannot see it. Docker only ever reads a
+# .dockerignore that sits at the context root, which is why this file exists
+# instead of the per-service ones that used to live in teams-bot/.
+#
+# Keep this list to things no Dockerfile needs. Do not exclude whole service
+# directories: the Dockerfiles COPY from im-core/, teams-bot/ and feishu-bot/.
+
+# Version control & docs
+.git/
+.gitignore
+**/*.md
+!README.md
+
+# Python artifacts (dev virtualenvs are per-package and large)
+**/.venv/
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.ruff_cache/
+**/.mypy_cache/
+**/*.egg-info/
+.python-version
+
+# Node artifacts (web_ui is built by its own Dockerfile under web_ui/)
+**/node_modules/
+**/.next/
+**/out/
+**/dist/
+**/coverage/
+**/.turbo/
+
+# Local env & secrets — never ship these into an image
+.env
+.env.*
+!.env.example
+
+# Editor / OS noise
+**/.DS_Store
+**/.idea/
+**/.vscode/

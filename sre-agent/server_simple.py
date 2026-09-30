@@ -530,9 +530,12 @@ _team_token_by_thread: Dict[str, str] = {}
 _team_identity_by_thread: Dict[str, tuple[str, str]] = {}
 # Thread ID -> agent run ID (populated at run start; consumed at finalize)
 _run_id_by_thread: Dict[str, str] = {}
-# Per-thread trigger_source from /investigate (teams-bot sends "teams")
+# Per-thread trigger_source from /investigate (teams-bot sends "teams",
+# feishu-bot sends "feishu"). Anything outside this set is rewritten to
+# "web_ui" by _normalize_trigger_source(), so a missing entry silently
+# misattributes every run from that surface.
 _ALLOWED_TRIGGER_SOURCES = frozenset(
-    {"web_ui", "teams", "slack", "api", "scheduled", "manual"}
+    {"web_ui", "teams", "slack", "feishu", "api", "scheduled", "manual"}
 )
 _trigger_source_by_thread: Dict[str, str] = {}
 _trigger_actor_by_thread: Dict[str, str] = {}

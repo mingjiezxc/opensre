@@ -71,6 +71,10 @@ services:
     enabled: false
     image: swapnildahiphale/opensre-teams-bot:v1.2.6
 
+  feishuBot:
+    enabled: false
+    image: ""  # e.g. swapnildahiphale/opensre-feishu-bot:v1.3.0
+
   k8sGateway:
     enabled: false
 

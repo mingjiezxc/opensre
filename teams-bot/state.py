@@ -1,47 +1,30 @@
-"""Investigation state for the Teams bot (Slack MessageState trimmed)."""
+"""Teams view of the shared investigation state (``opensre_im_core.models``).
 
-from dataclasses import dataclass, field
-from typing import Any, Optional
+The state machine moved into the platform-agnostic core; this module is a thin
+re-export so every Teams import path (``from state import ...``) keeps working.
 
+``question_activity_ids`` is the Teams name for the core's ``question_card_ids``
+(a Teams question card is addressed by its Bot Framework *activity* id). It is
+the **same mapping object**, not a copy, so the shared runner's timeout lookup
+and the Teams card-action handler always see one another's writes.
+"""
 
-@dataclass
-class ToolCall:
-    name: str
-    tool_use_id: Optional[str] = None
-    input: dict = field(default_factory=dict)
-    running: bool = True
-    success: Optional[bool] = None
-    summary: Optional[str] = None
+from opensre_im_core.models import (
+    InvestigationState,
+    ThoughtSection,
+    ToolCall,
+    active_investigations,
+    pending_questions,
+    question_card_ids,
+)
 
+question_activity_ids = question_card_ids
 
-@dataclass
-class ThoughtSection:
-    text: str
-    completed: bool = False
-    tools: list = field(default_factory=list)  # list[ToolCall]
-
-
-@dataclass
-class InvestigationState:
-    thread_id: str
-    run_id: Optional[str] = None
-    thoughts: list = field(default_factory=list)
-    current_tool: Optional[ToolCall] = None
-    final_result: Optional[str] = None
-    error: Optional[str] = None
-    background_waiting_label: Optional[str] = None
-    pending_background_count: int = 0
-    background_notification: Optional[str] = None
-
-    def current_thought_text(self) -> str:
-        return self.thoughts[-1].text if self.thoughts else ""
-
-
-# thread_id -> question list from SSE "question" event
-pending_questions: dict[str, list[dict[str, Any]]] = {}
-
-# thread_id -> Teams activity id of the question card (for timeout updates)
-question_activity_ids: dict[str, str] = {}
-
-# thread_ids with an in-flight run_investigation (SSE still open)
-active_investigations: set[str] = set()
+__all__ = [
+    "InvestigationState",
+    "ThoughtSection",
+    "ToolCall",
+    "active_investigations",
+    "pending_questions",
+    "question_activity_ids",
+]

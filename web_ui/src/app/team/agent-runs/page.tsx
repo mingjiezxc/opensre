@@ -43,7 +43,7 @@ interface AgentRun {
   id: string;
   correlationId: string;
   agentName: string;
-  triggerSource: 'slack' | 'api' | 'scheduled' | 'manual' | 'web_ui' | 'teams';
+  triggerSource: 'slack' | 'api' | 'scheduled' | 'manual' | 'web_ui' | 'teams' | 'feishu';
   triggerActor?: string;
   triggerMessage?: string;
   status: 'running' | 'completed' | 'failed' | 'timeout' | 'interrupted';
@@ -77,7 +77,8 @@ const ISSUE_TYPE_MAX = 12;
 
 // Channel icons aligned to investigations mockup (Monitor for web ui, not Zap/flash).
 const triggerIcon = (s: string) => {
-  if (s === 'slack' || s === 'teams') return <MessageSquare className="w-3.5 h-3.5" />;
+  if (s === 'slack' || s === 'teams' || s === 'feishu')
+    return <MessageSquare className="w-3.5 h-3.5" />;
   if (s === 'api') return <Terminal className="w-3.5 h-3.5" />;
   if (s === 'scheduled') return <Calendar className="w-3.5 h-3.5" />;
   if (s === 'manual') return <FileText className="w-3.5 h-3.5" />;
@@ -286,7 +287,7 @@ export default function TeamAgentRunsPage() {
 
   const channelOptions = useMemo(() => {
     const sources = new Set(runs.map((r) => r.triggerSource));
-    return ['web_ui', 'teams', 'slack', 'api', 'manual', 'scheduled'].filter((s) =>
+    return ['web_ui', 'teams', 'slack', 'feishu', 'api', 'manual', 'scheduled'].filter((s) =>
       sources.has(s as AgentRun['triggerSource']),
     );
   }, [runs]);

@@ -79,6 +79,7 @@ Requires **Docker Desktop** (or equivalent) running. `make dev` creates the exte
 | **Entra SSO** | Sign in to the web console with Microsoft Entra ID (token login remains) |
 | **Slack Integration** | Investigate incidents directly from Slack (`make dev-slack`) |
 | **Teams Bot** | Investigate incidents from Microsoft Teams (`make dev-teams`) |
+| **Feishu / Lark Bot** | Investigate incidents from Feishu groups and DMs (`make dev-feishu`) |
 
 **[→ See all features](https://www.opensre.in)** · **[Roadmap](https://www.opensre.in/docs)**
 
@@ -89,6 +90,7 @@ Requires **Docker Desktop** (or equivalent) running. `make dev` creates the exte
 | `make dev` | Start all services (Postgres, config, Neo4j, agent, web UI) |
 | `make dev-slack` | Start all services + Slack bot |
 | `make dev-teams` | Start all services + Microsoft Teams bot |
+| `make dev-feishu` | Start all services + Feishu / Lark bot |
 | `make stop` | Stop all services |
 | `make status` | Show service health status |
 | `make logs` | Follow all service logs |
@@ -102,6 +104,12 @@ Requires **Docker Desktop** (or equivalent) running. `make dev` creates the exte
 ### Microsoft Teams
 
 Configure `TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, and `TEAMS_TENANT_ID` in `.env`, then run `make dev-teams`. The bot listens on port **3978**. See `teams-bot/README.md`.
+
+### Feishu / Lark
+
+Create an app in the Feishu Open Platform console, set `FEISHU_APP_ID` and `FEISHU_APP_SECRET` in `.env` (plus `FEISHU_VERIFICATION_TOKEN` / `FEISHU_ENCRYPT_KEY` for webhook mode), then run `make dev-feishu`. `FEISHU_MODE=webhook` needs a public URL for the event subscription; `FEISHU_MODE=ws` dials a long connection outbound and needs none. The bot listens on port **3979**. See `feishu-bot/README.md`.
+
+Both chat bots build on the shared `im-core/` package (platform-agnostic streaming, cards, and sre-agent client); `teams-bot/` and `feishu-bot/` only supply the platform adapter.
 
 ### Web console Entra SSO
 

@@ -2,22 +2,47 @@
 
 import logging
 import re
-from typing import Any, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 import aiohttp
-from card_builder import build_welcome_card
-from investigation_runner import (
-    queue_message,
+from opensre_im_core.agent_client import AgentClient
+from opensre_im_core.investigation_runner import (
+    InvestigationCallbacks,
+    PlatformHooks,
     run_investigation,
     sanitize_thread_id,
     shape_answers_from_card_data,
-    submit_answers,
 )
-from state import active_investigations, pending_questions
+
+from card_builder import (
+    build_final_card,
+    build_final_text,
+    build_question_card,
+    build_timeout_card,
+    build_welcome_card,
+)
+from config import Config
+from state import active_investigations, pending_questions, question_activity_ids
 
 logger = logging.getLogger(__name__)
 
 SUBMIT_VERB = "opensre.submit_answers"
+
+# sre-agent attributes every run to a trigger_source; Teams is the platform tag.
+TRIGGER_SOURCE = "teams"
+# sanitize_thread_id prefixes the thread id with this, so `teams-…` ids stay
+# distinguishable from other platforms running against the same sre-agent.
+THREAD_ID_PREFIX = "teams"
+# Live-progress edit cadence. The shared core defaults to 1.0s; Teams cards were
+# tuned at 0.5s, and this migration must stay behaviour-neutral for Teams users
+# (Feishu pins its own, slower interval because its card PATCH is rate-limited).
+PROGRESS_UPDATE_INTERVAL_SECONDS = 0.5
+
+StreamUpdate = Callable[[str], Awaitable[None]]
+StreamClose = Callable[[], Awaitable[None]]
+SendCard = Callable[[dict], Awaitable[Optional[str]]]  # returns activity id
+SendText = Callable[[str], Awaitable[None]]
+UpdateCard = Callable[[str, dict], Awaitable[None]]  # activity_id, card
 
 
 def is_personal_chat(conversation_type: str | None) -> bool:
@@ -79,6 +104,107 @@ def _dict_to_adaptive_card(card: dict):
     return AdaptiveCard.model_validate(card)
 
 
+def _agent_client(cfg: Optional[Config] = None) -> AgentClient:
+    """sre-agent client built from the Teams bot's configuration."""
+    cfg = cfg or Config()
+    return AgentClient(
+        cfg.SRE_AGENT_URL,
+        auth_token=cfg.INVESTIGATE_AUTH_TOKEN,
+        team_token=cfg.OPENSRE_TEAM_TOKEN,
+    )
+
+
+async def queue_message(*, thread_id: str, text: str) -> dict:
+    """Queue a mid-run message onto the live investigation."""
+    return await _agent_client().queue_message(thread_id=thread_id, text=text)
+
+
+async def submit_answers(*, thread_id: str, answers: dict[str, str]) -> None:
+    """Submit question-card answers for a waiting investigation."""
+    await _agent_client().submit_answers(thread_id=thread_id, answers=answers)
+
+
+def _build_question_card(*, thread_id: str, questions: list[dict]) -> dict:
+    """Question-card builder passed to the shared runner.
+
+    Posting the card is the core's job, but the card-action handler still needs
+    the questions to shape the submitted answers — remember them here, keyed by
+    the same thread id the action carries.
+    """
+    pending_questions[thread_id] = questions
+    return build_question_card(thread_id=thread_id, questions=questions)
+
+
+class TeamsHooks(PlatformHooks):
+    """Microsoft Teams implementation of the shared ``PlatformHooks`` contract.
+
+    Wraps the ``ctx``-driven callables the handler builds (stream for 1:1/Web
+    Chat, PUT-ed text bubble for channels) and owns the Teams-specific final
+    reply: 1:1 and Azure Web Chat get an Adaptive Card, channel/group threads
+    get plain text (Bot Framework streaming and cards are unavailable there).
+    """
+
+    def __init__(
+        self,
+        *,
+        thread_id: str,
+        stream_update: StreamUpdate,
+        stream_close: StreamClose,
+        send_card: SendCard,
+        send_text: SendText,
+        update_card: UpdateCard,
+        plain_text_final: bool,
+    ) -> None:
+        self.thread_id = thread_id
+        self.plain_text_final = plain_text_final
+        self._stream_update = stream_update
+        self._stream_close = stream_close
+        self._send_card = send_card
+        self._send_text = send_text
+        self._update_card = update_card
+
+    async def stream_update(self, content: str) -> None:
+        await self._stream_update(content)
+
+    async def stream_close(self) -> None:
+        await self._stream_close()
+
+    async def send_card(self, card: Any) -> Optional[str]:
+        return await self._send_card(card)
+
+    async def send_text(self, content: str) -> None:
+        await self._send_text(content)
+
+    async def update_card(self, card_id: str, card: Any) -> None:
+        await self._update_card(card_id, card)
+
+    async def send_final_reply(
+        self,
+        *,
+        result_text: Optional[str],
+        error: Optional[str],
+        run_url: Optional[str],
+    ) -> None:
+        if self.plain_text_final:
+            await self._send_text(
+                build_final_text(result_text=result_text, error=error, run_url=run_url)
+            )
+            return
+        await self._send_card(
+            build_final_card(result_text=result_text, error=error, run_url=run_url)
+        )
+
+    def timeout_card_override(self) -> dict:
+        """``build_timeout_card`` override: drop the timed-out question set.
+
+        The shared runner replaces the card itself; the Teams card-action
+        handler reads ``pending_questions``, so the stale set is cleared here —
+        exactly what the pre-extraction runner did on ``question_timeout``.
+        """
+        pending_questions.pop(self.thread_id, None)
+        return build_timeout_card()
+
+
 def register_handlers(app) -> None:
     from microsoft_teams.api import MessageActivity, MessageActivityInput
     from microsoft_teams.apps import ActivityContext
@@ -115,7 +241,7 @@ def register_handlers(app) -> None:
             )
             return
 
-        thread_id = sanitize_thread_id(conversation.id)
+        thread_id = sanitize_thread_id(conversation.id, THREAD_ID_PREFIX)
 
         if thread_id in active_investigations:
             try:
@@ -199,17 +325,34 @@ def register_handlers(app) -> None:
             )
             progress_activity_id = getattr(sent, "id", None)
 
-        # Await runner in-handler so ctx.stream stays valid for 1:1 / Web Chat.
-        await run_investigation(
+        cfg = Config()
+        hooks = TeamsHooks(
             thread_id=thread_id,
-            prompt=cleaned,
             stream_update=stream_update,
             stream_close=stream_close,
             send_card=send_card,
             send_text=send_text,
             update_card=update_card,
             plain_text_final=not use_stream,
+        )
+        callbacks = InvestigationCallbacks(
+            hooks,
+            build_question_card=_build_question_card,
+            build_timeout_card=hooks.timeout_card_override,
+            update_interval=PROGRESS_UPDATE_INTERVAL_SECONDS,
+        )
+
+        # Await runner in-handler so ctx.stream stays valid for 1:1 / Web Chat.
+        await run_investigation(
+            thread_id=thread_id,
+            prompt=cleaned,
+            callbacks=callbacks,
+            client=_agent_client(cfg),
+            web_ui_base_url=cfg.WEB_UI_PUBLIC_BASE_URL,
+            trigger_source=TRIGGER_SOURCE,
             trigger_actor=activity_sender_name(activity),
+            active_investigations=active_investigations,
+            question_card_ids=question_activity_ids,
         )
 
     @app.on_card_action_execute(SUBMIT_VERB)

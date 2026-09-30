@@ -836,6 +836,29 @@ wheels = [
 ]
 
 [[package]]
+name = "opensre-im-core"
+version = "0.1.0"
+source = { editable = "../im-core" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "mistune" },
+    { name = "python-dotenv" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiohttp", specifier = ">=3.9.0" },
+    { name = "mistune", specifier = ">=3.0.0" },
+    { name = "python-dotenv", specifier = ">=1.0.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8.0.0" },
+    { name = "pytest-asyncio", specifier = ">=0.23.0" },
+]
+
+[[package]]
 name = "opensre-teams-bot"
 version = "0.1.0"
 source = { virtual = "." }
@@ -844,6 +867,7 @@ dependencies = [
     { name = "microsoft-teams-apps" },
     { name = "microsoft-teams-cards" },
     { name = "mistune" },
+    { name = "opensre-im-core" },
     { name = "python-dotenv" },
 ]
 
@@ -859,6 +883,7 @@ requires-dist = [
     { name = "microsoft-teams-apps", specifier = ">=2.0.14" },
     { name = "microsoft-teams-cards", specifier = ">=2.0.14" },
     { name = "mistune", specifier = ">=3.0.0" },
+    { name = "opensre-im-core", editable = "../im-core" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
 ]
 

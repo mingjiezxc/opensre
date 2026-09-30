@@ -1,6 +1,9 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from opensre_im_core.agent_client import AgentClient
+from opensre_im_core.investigation_runner import sanitize_thread_id
+
 from bot_handlers import (
     activity_sender_name,
     is_azure_webchat,
@@ -10,8 +13,7 @@ from bot_handlers import (
     should_handle_message,
     strip_bot_mention,
 )
-from investigation_runner import sanitize_thread_id
-from state import active_investigations
+from state import active_investigations, question_activity_ids
 
 
 def test_activity_sender_name_from_property():
@@ -124,24 +126,36 @@ async def test_channel_investigation_does_not_use_activity_stream():
 
     mock_run.assert_awaited_once()
     kwargs = mock_run.await_args.kwargs
+    assert kwargs["trigger_source"] == "teams"
     assert kwargs["trigger_actor"] == "Jane Doe"
-    assert kwargs["plain_text_final"] is True
+    # Caller-owned state containers: the map on_submit/timeout share with the core.
+    assert kwargs["active_investigations"] is active_investigations
+    assert kwargs["question_card_ids"] is question_activity_ids
+    assert isinstance(kwargs["client"], AgentClient)
+    hooks = kwargs["callbacks"].hooks
+    assert hooks.plain_text_final is True
+    # Teams keeps its historical 0.5s progress cadence (core default is 1.0s).
+    assert kwargs["callbacks"].update_interval == 0.5
     ctx.stream.update.assert_not_called()
     # Ack is one send; progress edits reuse that activity id (PUT, not stream).
     assert ctx.send.await_count == 1
-    await kwargs["stream_update"]("Working on Jira…")
-    await kwargs["stream_close"]()
+    await hooks.stream_update("Working on Jira…")
+    await hooks.stream_close()
     ctx.stream.update.assert_not_called()
     ctx.stream.close.assert_not_called()
     assert ctx.send.await_count == 2
     progress = ctx.send.await_args_list[-1].args[0]
     assert progress.id == "act-ch"
     assert progress.text == "Working on Jira…"
-    await kwargs["update_card"](
+    await hooks.update_card(
         "act-q", {"type": "AdaptiveCard", "body": [], "actions": []}
     )
     timeout_card = ctx.send.await_args_list[-1].args[0]
     assert timeout_card.id == "act-q"
+    # Channel/group final replies stay plain text (no cards, no streaming).
+    await hooks.send_final_reply(result_text="Root cause: OOM", error=None, run_url=None)
+    final_text = ctx.send.await_args_list[-1].args[0]
+    assert final_text.text == "Root cause: OOM"
 
 
 @pytest.mark.asyncio
@@ -181,11 +195,16 @@ async def test_personal_investigation_keeps_activity_stream():
         await on_message_handler(ctx)
 
     kwargs = mock_run.await_args.kwargs
-    await kwargs["stream_update"]("progress")
-    await kwargs["stream_close"]()
+    hooks = kwargs["callbacks"].hooks
+    await hooks.stream_update("progress")
+    await hooks.stream_close()
     ctx.stream.update.assert_called_once()
     ctx.stream.close.assert_called_once()
-    assert kwargs["plain_text_final"] is False
+    assert hooks.plain_text_final is False
+    # 1:1 / Azure Web Chat final replies stay Adaptive Cards.
+    await hooks.send_final_reply(result_text="Done", error=None, run_url=None)
+    final_card = ctx.send.await_args.args[0]
+    assert "Done" in str(final_card)
 
 
 @pytest.mark.asyncio
@@ -266,7 +285,7 @@ async def test_on_message_active_thread_queues_instead_of_investigation():
     assert on_message_handler is not None
 
     conversation_id = "19:abc@thread.tacv2"
-    thread_id = sanitize_thread_id(conversation_id)
+    thread_id = sanitize_thread_id(conversation_id, "teams")
     active_investigations.add(thread_id)
 
     ctx = MagicMock()
@@ -326,7 +345,7 @@ async def test_on_message_queue_404_starts_follow_up_investigation():
     assert on_message_handler is not None
 
     conversation_id = "19:404@thread.tacv2"
-    thread_id = sanitize_thread_id(conversation_id)
+    thread_id = sanitize_thread_id(conversation_id, "teams")
     active_investigations.add(thread_id)
 
     ctx = MagicMock()
@@ -386,7 +405,7 @@ async def test_on_message_queue_409_starts_follow_up_investigation():
     assert on_message_handler is not None
 
     conversation_id = "19:409@thread.tacv2"
-    thread_id = sanitize_thread_id(conversation_id)
+    thread_id = sanitize_thread_id(conversation_id, "teams")
     active_investigations.add(thread_id)
 
     ctx = MagicMock()

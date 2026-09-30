@@ -1,0 +1,142 @@
+{{- if .Values.services.feishuBot.enabled }}
+# =============================================================================
+# Feishu / Lark Bot - Feishu Open Platform integration
+# =============================================================================
+# Handles:
+# - Group @mentions and direct (p2p) messages via the Feishu event subscription
+# - Investigation streaming via sre-agent SSE
+# - Interactive-card answers for clarifying questions
+#
+# Two transport modes (FEISHU_MODE in the secret):
+# - webhook: Feishu POSTs events to the Ingress path below (enable .ingress)
+# - ws: long connection dialled outbound, no public URL/Ingress required
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opensre-feishu-bot
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: opensre-feishu-bot
+spec:
+  replicas: {{ .Values.services.feishuBot.replicas | default 1 }}
+  selector:
+    matchLabels:
+      app: opensre-feishu-bot
+  template:
+    metadata:
+      labels:
+        app: opensre-feishu-bot
+    spec:
+      {{- if .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+{{ toYaml .Values.global.imagePullSecrets | indent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: feishu-bot
+          image: {{ required "services.feishuBot.image is required" .Values.services.feishuBot.image }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          # No `command:` override: the image's own CMD/ENTRYPOINT is
+          # authoritative (feishu-bot/Dockerfile sets WORKDIR + CMD and is owned
+          # by the feishu-bot change). teams-bot.yaml pins a legacy /app venv
+          # path here; hardcoding that for feishu-bot would break once its
+          # Dockerfile follows the repo-root im-core layout.
+          ports:
+            - containerPort: {{ .Values.services.feishuBot.servicePort | default 3979 }}
+              name: http
+          resources:
+{{ toYaml .Values.services.feishuBot.resources | indent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          envFrom:
+            - secretRef:
+                name: {{ .Values.secrets.feishuBotEnv | quote }}
+          env:
+            - name: PORT
+              value: {{ .Values.services.feishuBot.servicePort | default 3979 | quote }}
+            - name: SRE_AGENT_URL
+              value: {{ printf "http://opensre-agent.%s.svc.cluster.local:%d" .Values.namespace (.Values.services.agent.servicePort | int) | quote }}
+            - name: WEB_UI_PUBLIC_BASE_URL
+              {{- $oidcBase := default "" .Values.services.webUi.oidc.publicBaseUrl }}
+              {{- if $oidcBase }}
+              value: {{ $oidcBase | quote }}
+              {{- else if .Values.ingress.host }}
+              value: {{ printf "https://%s" .Values.ingress.host | quote }}
+              {{- else }}
+              value: ""
+              {{- end }}
+            # uv defaults to /.cache/uv; non-root UID 1000 cannot write there.
+            - name: UV_CACHE_DIR
+              value: /tmp/uv-cache
+          readinessProbe:
+            tcpSocket:
+              port: {{ .Values.services.feishuBot.servicePort | default 3979 }}
+            initialDelaySeconds: {{ .Values.services.feishuBot.readinessProbe.initialDelaySeconds | default 5 }}
+            periodSeconds: {{ .Values.services.feishuBot.readinessProbe.periodSeconds | default 10 }}
+          {{- if .Values.services.feishuBot.livenessProbe.enabled }}
+          livenessProbe:
+            tcpSocket:
+              port: {{ .Values.services.feishuBot.servicePort | default 3979 }}
+            initialDelaySeconds: {{ .Values.services.feishuBot.livenessProbe.initialDelaySeconds | default 10 }}
+            periodSeconds: {{ .Values.services.feishuBot.livenessProbe.periodSeconds | default 30 }}
+          {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opensre-feishu-bot
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: opensre-feishu-bot
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.services.feishuBot.servicePort | default 3979 }}
+      targetPort: {{ .Values.services.feishuBot.servicePort | default 3979 }}
+      protocol: TCP
+      name: http
+  selector:
+    app: opensre-feishu-bot
+{{- if .Values.services.feishuBot.ingress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: opensre-feishu-bot
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: opensre-feishu-bot
+  {{- if .Values.services.feishuBot.ingress.annotations }}
+  annotations:
+{{ toYaml .Values.services.feishuBot.ingress.annotations | indent 4 }}
+  {{- end }}
+spec:
+  ingressClassName: {{ .Values.services.feishuBot.ingress.className | quote }}
+  {{- if and .Values.services.feishuBot.ingress.tls.enabled .Values.services.feishuBot.ingress.tls.secretName }}
+  tls:
+    - hosts:
+        - {{ required "services.feishuBot.ingress.host is required when ingress.tls.enabled=true" .Values.services.feishuBot.ingress.host | quote }}
+      secretName: {{ .Values.services.feishuBot.ingress.tls.secretName | quote }}
+  {{- end }}
+  rules:
+    - {{- if .Values.services.feishuBot.ingress.host }}
+      host: {{ .Values.services.feishuBot.ingress.host | quote }}
+      {{- end }}
+      http:
+        paths:
+          - path: {{ .Values.services.feishuBot.ingress.path | default "/webhook/event" | quote }}
+            pathType: {{ .Values.services.feishuBot.ingress.pathType | default "Prefix" | quote }}
+            backend:
+              service:
+                name: opensre-feishu-bot
+                port:
+                  number: {{ .Values.services.feishuBot.servicePort | default 3979 }}
+{{- end }}
+{{- end }}

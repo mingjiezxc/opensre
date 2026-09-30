@@ -8,14 +8,20 @@ version: '3.8'
 #   Core: postgres, config-service, neo4j, sre-agent, web-ui
 #   Optional: slack-bot (--profile slack / make dev-slack)
 #             teams-bot (--profile teams / make dev-teams)
+#             feishu-bot (--profile feishu / make dev-feishu)
 #             litellm (--profile litellm)
 #
 # Usage:
-#   make dev         Start core services
-#   make dev-teams   Core + Teams bot
-#   make stop        Stop everything
-#   make logs       Follow logs
-#   make clean      Remove containers + volumes
+#   make dev          Start core services
+#   make dev-teams    Core + Teams bot
+#   make dev-feishu   Core + Feishu/Lark bot
+#   make stop         Stop everything
+#   make logs         Follow logs
+#   make clean        Remove containers + volumes
+#
+# Note: teams-bot and feishu-bot build from the REPO ROOT context (not their
+# own directory) because both depend on the sibling im-core/ package, which a
+# per-service context could not see.
 #
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -362,8 +368,9 @@ services:
   # Exits gracefully if TEAMS_APP_ID / TEAMS_APP_PASSWORD / TEAMS_TENANT_ID unset
   teams-bot:
     build:
-      context: ./teams-bot
-      dockerfile: Dockerfile
+      # Repo-root context: the Dockerfile COPYs the sibling im-core/ package.
+      context: .
+      dockerfile: teams-bot/Dockerfile
     container_name: opensre-teams-bot
     profiles: ["teams"]
     restart: unless-stopped
@@ -375,6 +382,46 @@ services:
       - PORT=3978
     ports:
       - "3978:3978"
+    depends_on:
+      - sre-agent
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=100m
+    mem_limit: 1g
+    cpus: 1
+    pids_limit: 50
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - app_network
+      - default
+
+  # Feishu / Lark Bot — Feishu Open Platform events → sre-agent
+  # Opt-in: docker compose --profile feishu up  /  make dev-feishu
+  # Exits gracefully if FEISHU_APP_ID / FEISHU_APP_SECRET are unset.
+  # FEISHU_MODE selects ws (long connection, no public URL) or webhook.
+  feishu-bot:
+    build:
+      # Repo-root context: the Dockerfile COPYs the sibling im-core/ package.
+      context: .
+      dockerfile: feishu-bot/Dockerfile
+    container_name: opensre-feishu-bot
+    profiles: ["feishu"]
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - SRE_AGENT_URL=http://sre-agent:8000
+      - WEB_UI_PUBLIC_BASE_URL=${WEB_UI_PUBLIC_BASE_URL:-http://localhost:3002}
+      - PORT=3979
+    ports:
+      - "3979:3979"
     depends_on:
       - sre-agent
     security_opt:

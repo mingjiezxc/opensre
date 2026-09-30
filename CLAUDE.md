@@ -48,7 +48,9 @@ The web console will be available at `http://localhost:3002`.
 
 Optional chat bots:
 - `make dev-teams` — Microsoft Teams bot (`teams-bot/`, port 3978)
+- `make dev-feishu` — Feishu / Lark bot (`feishu-bot/`, port 3979)
 - `make dev-slack` — Slack bot (requires `slack-bot/` + Slack tokens)
+- `im-core/` — shared platform-agnostic IM core both bots build on
 
 ## Key files
 
@@ -63,6 +65,8 @@ Optional chat bots:
 | config_service/src/api/main.py | Config API with hierarchical merge |
 | web_ui/src/app/ | Next.js app router pages |
 | teams-bot/ | Microsoft Teams bot (SSE to sre-agent) |
+| feishu-bot/ | Feishu / Lark bot (SSE to sre-agent) |
+| im-core/ | Shared platform-agnostic IM core used by the chat bots |
 | litellm_config.example.yaml | Example LiteLLM proxy config (optional) |
 
 ## Conventions

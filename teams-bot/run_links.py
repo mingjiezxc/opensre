@@ -1,16 +1,18 @@
-"""Build OpenSRE web UI links for Teams final replies."""
+"""Teams re-export of the shared OpenSRE run links (``opensre_im_core``).
 
-VIEW_LINK_LABEL = "View in OpenSRE"
+The ``View in OpenSRE`` label and the ``/team/agent-runs/<id>`` URL shape are
+decided strings shared by every IM integration. Kept as a named re-export so
+``from run_links import ...`` keeps resolving inside the Teams package.
+"""
 
+from opensre_im_core.run_links import (
+    VIEW_LINK_LABEL,
+    build_agent_run_url,
+    format_view_link_markdown,
+)
 
-def build_agent_run_url(base_url: str, run_id: str) -> str | None:
-    """Return the team console run URL, or None when inputs are missing."""
-    base = (base_url or "").strip().rstrip("/")
-    rid = (run_id or "").strip()
-    if not base or not rid:
-        return None
-    return f"{base}/team/agent-runs/{rid}"
-
-
-def format_view_link_markdown(url: str) -> str:
-    return f"[{VIEW_LINK_LABEL}]({url})"
+__all__ = [
+    "VIEW_LINK_LABEL",
+    "build_agent_run_url",
+    "format_view_link_markdown",
+]

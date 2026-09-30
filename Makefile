@@ -2,7 +2,7 @@
 #
 # Run 'make help' to see all available targets.
 
-.PHONY: help setup-llm ensure-volumes compose-reconcile dev dev-slack dev-teams stop logs logs-agent logs-config logs-web status clean db-shell \
+.PHONY: help setup-llm ensure-volumes compose-reconcile dev dev-slack dev-teams dev-feishu stop logs logs-agent logs-config logs-web status clean db-shell \
         kind-create kind-delete otel-install otel-images otel-wait e2e-verify \
         e2e-setup e2e-teardown e2e-agent e2e-status e2e-token \
         e2e-setup-eks e2e-teardown-eks eks-port-forward eks-port-forward-stop \
@@ -88,6 +88,7 @@ help:
 	@echo "  make dev                Start all services (postgres, config, neo4j, agent, web-ui)"
 	@echo "  make dev-slack          Start all services + Slack bot"
 	@echo "  make dev-teams          Start all services + Teams bot"
+	@echo "  make dev-feishu         Start all services + Feishu/Lark bot"
 	@echo "  make stop               Stop all services"
 	@echo "  make logs               Follow all service logs"
 	@echo "  make logs-agent         Follow sre-agent logs"
@@ -159,6 +160,10 @@ dev-slack: setup-llm ensure-volumes compose-reconcile
 
 dev-teams: setup-llm ensure-volumes compose-reconcile
 	$(COMPOSE_DEV) --profile teams up -d --build
+	@bash scripts/post-startup-banner.sh
+
+dev-feishu: setup-llm ensure-volumes compose-reconcile
+	$(COMPOSE_DEV) --profile feishu up -d --build
 	@bash scripts/post-startup-banner.sh
 
 stop:

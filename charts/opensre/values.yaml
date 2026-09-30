@@ -177,6 +177,7 @@ secrets:
   sreAgentEnv: opensre-sre-agent-env
   webUiEnv: opensre-web-ui-env
   teamsBotEnv: opensre-teams-bot-env
+  feishuBotEnv: opensre-feishu-bot-env
 
 # Embedded PostgreSQL (Bitnami subchart). Disabled by default; enable in self-hosted profile.
 postgresql:
@@ -549,6 +550,38 @@ services:
       host: ""
       path: /api/messages
       pathType: Exact
+      tls:
+        enabled: false
+        secretName: ""
+      annotations: {}
+
+  # Feishu / Lark Bot - Feishu Open Platform integration (WebSocket or webhook)
+  feishuBot:
+    enabled: false
+    image: ""
+    replicas: 1
+    servicePort: 3979
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+    readinessProbe:
+      initialDelaySeconds: 5
+      periodSeconds: 10
+    livenessProbe:
+      enabled: true
+      initialDelaySeconds: 10
+      periodSeconds: 30
+    # Only used when FEISHU_MODE=webhook; the WebSocket mode dials out instead.
+    ingress:
+      enabled: false
+      className: nginx
+      host: ""
+      path: /webhook/event
+      pathType: Prefix
       tls:
         enabled: false
         secretName: ""

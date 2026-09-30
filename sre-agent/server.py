@@ -34,7 +34,7 @@ from dotenv import load_dotenv
 from events import error_event
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sandbox_manager import (
     SandboxExecutionError,
     SandboxInfo,
@@ -238,6 +238,32 @@ class FileAttachment(BaseModel):
     auth_header: str = Field(..., max_length=1024)
 
 
+# Trigger attribution. Keep in sync with server_simple.py so the console and
+# audit log classify chat-bot runs identically in simple and sandbox mode.
+# An unknown value is normalized to "web_ui" rather than rejected — dropping a
+# run is worse than misattributing it, and this matches simple mode exactly.
+_ALLOWED_TRIGGER_SOURCES = frozenset(
+    {"web_ui", "teams", "slack", "feishu", "api", "scheduled", "manual"}
+)
+_TRIGGER_ACTOR_MAX = 128
+
+
+def _normalize_trigger_source(value: Optional[str]) -> str:
+    """Map client trigger_source to a known value. Unknown/empty → web_ui."""
+    v = (value or "").strip().lower()
+    return v if v in _ALLOWED_TRIGGER_SOURCES else "web_ui"
+
+
+def _normalize_trigger_actor(value: Optional[str]) -> Optional[str]:
+    """Strip and cap trigger_actor. Empty → None so the DB column stays null."""
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    if not stripped:
+        return None
+    return stripped[:_TRIGGER_ACTOR_MAX]
+
+
 class InvestigateRequest(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=500_000)
     thread_id: Optional[str] = Field(None, max_length=128)
@@ -246,6 +272,23 @@ class InvestigateRequest(BaseModel):
     team_token: Optional[str] = Field(None, max_length=512)
     images: Optional[List[ImageData]] = Field(None, max_length=10)
     file_attachments: Optional[List[FileAttachment]] = Field(None, max_length=20)
+    # Optional. Chat bots send their platform ("feishu", "teams"); web omits.
+    # Normalized on the way in (unknown → "web_ui") so callers cannot inject an
+    # unbounded or unexpected value into logs/attribution.
+    trigger_source: Optional[str] = None
+    # Optional. Bots send the sender display name. Stripped + capped at 128.
+    trigger_actor: Optional[str] = None
+
+    @field_validator("trigger_source")
+    @classmethod
+    def _check_trigger_source(cls, v: Optional[str]) -> Optional[str]:
+        # None (field omitted) stays None; anything sent is normalized.
+        return _normalize_trigger_source(v) if v is not None else None
+
+    @field_validator("trigger_actor")
+    @classmethod
+    def _check_trigger_actor(cls, v: Optional[str]) -> Optional[str]:
+        return _normalize_trigger_actor(v)
 
 
 class InterruptRequest(BaseModel):
@@ -622,7 +665,9 @@ async def investigate(request: InvestigateRequest, raw_request: Request):
     require_service_auth(raw_request)
 
     print(
-        f"🔵 [INVESTIGATE] Request received: thread_id={request.thread_id}, prompt={request.prompt[:50]}..."
+        f"🔵 [INVESTIGATE] Request received: thread_id={request.thread_id}, "
+        f"trigger_source={request.trigger_source or 'web_ui'}, "
+        f"trigger_actor={request.trigger_actor}, prompt={request.prompt[:50]}..."
     )
 
     # Acquire semaphore — excess requests wait here instead of crashing the pod
@@ -644,6 +689,15 @@ async def _investigate_inner(request: InvestigateRequest):
     tenant_id = request.tenant_id or os.getenv("DEFAULT_TENANT_ID", "local")
     team_id = request.team_id or os.getenv("DEFAULT_TEAM_ID", "local")
     team_token = request.team_token  # For config-driven agents (may be None)
+
+    # Trigger attribution (request.trigger_source / request.trigger_actor) is
+    # validated and normalized on the model, then logged above. Persisting it
+    # requires plumbing this server does not have yet: sandbox mode creates no
+    # agent-run/audit record here, and create_investigation_stream() →
+    # sandbox_manager.execute_in_sandbox() forwards only
+    # prompt/thread_id/images/file_downloads to the sandbox. Both of those
+    # files are out of scope for this change, so a sandbox-mode deployment
+    # still records the attribution nowhere but the process log.
 
     # Create/reuse sandbox
     sandbox_info = sandbox_manager.get_sandbox(thread_id)

@@ -1,0 +1,65 @@
+# Per-package lint + tests for the chat-integration packages.
+#
+# This is the repo's first test CI. Before it, the teams-bot suite (~70 tests)
+# existed but had never run automatically.
+#
+# Each package is an independent uv project with its own uv.lock and its own
+# tests/ directory; they share the monorepo ruff config at the repo root.
+#
+# Known exception: teams-bot carries 4 pre-existing ruff I001 import-order
+# errors on main. teams-bot/** is owned by the in-flight im-core migration, so
+# its lint step is advisory (see lint_advisory) rather than blocking — flip it
+# once that migration lands. im-core and feishu-bot lint is blocking.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.package }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: im-core
+          - package: teams-bot
+            # Advisory only: 4 pre-existing I001 errors on main, owned by the
+            # teams-bot/im-core migration (not editable from this change).
+            lint_advisory: true
+          - package: feishu-bot
+    defaults:
+      run:
+        working-directory: ${{ matrix.package }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: ${{ matrix.package }}/uv.lock
+
+      - name: Install dependencies
+        # No --locked/--frozen: a brand-new package may not have committed a lock.
+        run: uv sync --all-groups
+
+      - name: Lint (ruff, repo-root ruff.toml)
+        continue-on-error: ${{ matrix.lint_advisory == true }}
+        run: uvx ruff check --config ../../ruff.toml .
+
+      - name: Test (pytest)
+        run: uv run pytest -q

@@ -1,0 +1,9 @@
+# Applies when the build context is the repo root (dockerfile: teams-bot/Dockerfile):
+# Docker looks for <Dockerfile-name>.dockerignore next to the Dockerfile, and these
+# patterns are relative to the context root — so they also cover im-core/.
+.venv
+__pycache__
+.pytest_cache
+tests
+*.md
+.env

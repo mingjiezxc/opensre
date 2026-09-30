@@ -33,13 +33,22 @@ jobs:
       matrix:
         include:
           - context: config_service
+            file: ./config_service/Dockerfile
             image: opensre-config-service
           - context: sre-agent
+            file: ./sre-agent/Dockerfile
             image: opensre-sre-agent
           - context: web_ui
+            file: ./web_ui/Dockerfile
             image: opensre-web-ui
-          - context: teams-bot
+          # teams-bot / feishu-bot depend on the sibling im-core/ package, so
+          # they build from the repo root; a per-service context cannot see it.
+          - context: .
+            file: ./teams-bot/Dockerfile
             image: opensre-teams-bot
+          - context: .
+            file: ./feishu-bot/Dockerfile
+            image: opensre-feishu-bot
 
     steps:
       - name: Resolve tag
@@ -90,8 +99,8 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: ./${{ matrix.context }}
-          file: ./${{ matrix.context }}/Dockerfile
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
